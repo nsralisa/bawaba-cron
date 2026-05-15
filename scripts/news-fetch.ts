@@ -37,6 +37,59 @@ type NewsSource = {
   rss_url: string;
 };
 
+// Tier 2 source IDs — global/regional Arabic outlets where we keep only
+// items mentioning Syria. The cron applies `passesSyriaFilter` to items
+// from these sources before upsert. Tier 1 sources (Syrian-focused
+// feeds) aren't in this set and pass through unfiltered.
+//
+// Daraj is NOT here even though it's a regional outlet — it exposes a
+// Syria-tagged topic feed, already pre-filtered server-side, so the
+// cron just consumes everything it returns.
+const SYRIA_FILTERED_SOURCES = new Set([
+  'bbc-arabic',
+  'aljazeera-ar',
+  'sky-news-ar',
+  'france24-ar',
+  'dw-arabic',
+  'anadolu-ar',
+  'rt-arabic',
+  'asharq-alawsat',
+]);
+
+// Substring tokens that mark an item as Syria-relevant. Substring match
+// is intentionally loose — Arabic grammar makes word-boundary matching
+// unreliable, and 'سوريا' inside 'السورية' or 'سوريون' should still
+// count. Trade-off: rare false positives on 'حمص' (Homs the city vs
+// chickpeas the food), 'حلب' (Aleppo vs milking). Acceptable noise
+// level for news context.
+const SYRIA_KEYWORDS = [
+  // Country name + adjective forms
+  'سوريا',
+  'سوري',
+  'سورية',
+  'السوري',
+  'السورية',
+  // Major Syrian cities (caught only when named explicitly)
+  'دمشق',
+  'حلب',
+  'حمص',
+  'اللاذقية',
+  'إدلب',
+  'درعا',
+  'الرقة',
+  'دير الزور',
+  'طرطوس',
+  'الحسكة',
+  'السويداء',
+  'القنيطرة',
+  'الجولان',
+];
+
+function passesSyriaFilter(title: string, summary: string | null): boolean {
+  const hay = `${title} ${summary ?? ''}`;
+  return SYRIA_KEYWORDS.some((kw) => hay.includes(kw));
+}
+
 type NewsItemRow = {
   source_id: string;
   external_id: string;
@@ -241,6 +294,20 @@ async function fetchSource(source: NewsSource): Promise<{
       image_url: sanitizeImageUrl(imageUrl) || null,
       published_at: new Date(publishedAtMs).toISOString(),
     });
+  }
+
+  // Tier 2 sources (global/regional Arabic outlets) get filtered down
+  // to items that match at least one Syria keyword in title + summary.
+  // Tier 1 (Syrian-focused) feeds bypass this — every item passes.
+  if (SYRIA_FILTERED_SOURCES.has(source.id)) {
+    const before = items.length;
+    const kept = items.filter((it) => passesSyriaFilter(it.title, it.summary));
+    if (before > 0) {
+      console.log(
+        `[${source.id}] syria-filter: kept ${kept.length}/${before}`,
+      );
+    }
+    return { source, items: kept };
   }
 
   return { source, items };
