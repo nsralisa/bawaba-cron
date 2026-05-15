@@ -2,10 +2,12 @@ name: Update News Feed
 
 on:
   schedule:
-    # Every 15 minutes. Daily-habit content needs to be fresh; 15-min
-    # polling matches what users would expect from a news app and keeps
-    # us well below any source's polite-fetch threshold.
-    - cron: '*/15 * * * *'
+    # Every 5 minutes — the GitHub Actions documented minimum for
+    # scheduled workflows. Public-repo runners are free + unlimited,
+    # so we maximize freshness. GitHub does NOT guarantee exact
+    # 5-min intervals; runs may queue several minutes longer during
+    # peak load, which is fine for our use case.
+    - cron: '*/5 * * * *'
   workflow_dispatch: {} # Manual trigger from the GitHub UI
 
 jobs:
