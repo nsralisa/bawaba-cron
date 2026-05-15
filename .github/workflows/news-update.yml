@@ -1,14 +1,16 @@
 name: Update News Feed
 
 on:
-  schedule:
-    # Every 5 minutes — the GitHub Actions documented minimum for
-    # scheduled workflows. Public-repo runners are free + unlimited,
-    # so we maximize freshness. GitHub does NOT guarantee exact
-    # 5-min intervals; runs may queue several minutes longer during
-    # peak load, which is fine for our use case.
-    - cron: '*/5 * * * *'
-  workflow_dispatch: {} # Manual trigger from the GitHub UI
+  # Trigger source: cron-job.org POSTs to this workflow's /dispatches
+  # endpoint every 5 minutes. We tried GitHub's native `schedule:`
+  # event first (commit cb83da0) but it dropped most ticks under
+  # load — only firing 2× in 3 hours during testing. workflow_dispatch
+  # is reliable because GitHub treats it as user-initiated and
+  # processes it immediately, every time.
+  #
+  # If cron-job.org goes down: trigger manually here, or restore
+  # `schedule: - cron: '*/5 * * * *'` as a fallback.
+  workflow_dispatch: {}
 
 jobs:
   update:

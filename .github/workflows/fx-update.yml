@@ -1,14 +1,10 @@
 name: Update FX Rates
 
 on:
-  schedule:
-    # Every 5 minutes — the GitHub Actions documented minimum.
-    # sp-today only updates a few times daily so most pulls will
-    # upsert no-ops (same values), but the dedup is cheap and
-    # surfacing a rate change ~5 min after it happens beats
-    # waiting for the next 30-min tick.
-    - cron: '*/5 * * * *'
-  workflow_dispatch: {}  # Manual trigger from GitHub UI
+  # See news-update.yml for why we don't use GitHub's native
+  # `schedule:` event. Same setup: cron-job.org triggers every 5 min
+  # via /dispatches.
+  workflow_dispatch: {}
 
 jobs:
   update:
