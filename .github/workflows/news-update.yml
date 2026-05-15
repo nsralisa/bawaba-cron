@@ -1,0 +1,29 @@
+name: Update News Feed
+
+on:
+  schedule:
+    # Every 15 minutes. Daily-habit content needs to be fresh; 15-min
+    # polling matches what users would expect from a news app and keeps
+    # us well below any source's polite-fetch threshold.
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {} # Manual trigger from the GitHub UI
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Fetch and upsert news items
+        run: bun run scripts/news-fetch.ts
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

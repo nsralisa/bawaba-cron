@@ -1,0 +1,29 @@
+name: Update FX Rates
+
+on:
+  schedule:
+    # Every 30 minutes. The sources we scrape (sp-today, CBS) update
+    # several times daily — half-hour polling is enough to be fresh
+    # without hammering them.
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}  # Manual trigger from GitHub UI
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Fetch and upsert rates
+        run: bun run scripts/fx-fetch.ts
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

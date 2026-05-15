@@ -1,0 +1,19 @@
+{
+  "name": "bawaba-cron",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "scripts": {
+    "fx": "bun run scripts/fx-fetch.ts",
+    "news": "bun run scripts/news-fetch.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "fast-xml-parser": "^5.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "~5.9.2"
+  }
+}
