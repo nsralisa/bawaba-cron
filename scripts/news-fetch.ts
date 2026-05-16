@@ -107,6 +107,26 @@ const MAX_ITEMS_PER_SOURCE = 30;
 const MAX_AGE_DAYS = 30;
 const SUMMARY_MAX_LEN = 400;
 const REQUEST_TIMEOUT_MS = 15_000;
+const OG_FETCH_TIMEOUT_MS = 8_000;
+
+// Substrings that, when found in a URL pulled from the RSS feed,
+// indicate the source served us an advertising/placeholder image
+// instead of the article's actual hero. Al Watan's `<content:encoded>`
+// contains only `<img src="…/ad_section-1.webp">` — the real article
+// image lives on the article page itself. Treat these as "no image"
+// and try the og:image fallback.
+const AD_PLACEHOLDER_PATTERNS = [
+  '/ad_section',
+  '/ad-section',
+  '/placeholder',
+  'masaha-i3laniya',
+];
+
+function isAdPlaceholderUrl(url: string | null): boolean {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  return AD_PLACEHOLDER_PATTERNS.some((p) => lower.includes(p));
+}
 
 // fast-xml-parser config: keep attribute names accessible, but flatten
 // to a predictable shape. Some RSS feeds wrap text in CDATA, some don't —
@@ -299,18 +319,89 @@ async function fetchSource(source: NewsSource): Promise<{
   // Tier 2 sources (global/regional Arabic outlets) get filtered down
   // to items that match at least one Syria keyword in title + summary.
   // Tier 1 (Syrian-focused) feeds bypass this — every item passes.
+  let finalItems = items;
   if (SYRIA_FILTERED_SOURCES.has(source.id)) {
     const before = items.length;
-    const kept = items.filter((it) => passesSyriaFilter(it.title, it.summary));
+    finalItems = items.filter((it) => passesSyriaFilter(it.title, it.summary));
     if (before > 0) {
       console.log(
-        `[${source.id}] syria-filter: kept ${kept.length}/${before}`,
+        `[${source.id}] syria-filter: kept ${finalItems.length}/${before}`,
       );
     }
-    return { source, items: kept };
   }
 
-  return { source, items };
+  // Backfill missing or ad-placeholder image URLs from the article
+  // page's <meta property="og:image">. Some feeds (Daraj, Al Jazeera
+  // Arabic) ship without any image marker at all; others (Al Watan)
+  // embed an ad-space placeholder where the article hero would go.
+  // We hit the article URL only when needed, in parallel across the
+  // source's items, so the extra cost is bounded by one ~8s timeout
+  // per source.
+  await Promise.all(
+    finalItems.map(async (it) => {
+      if (it.image_url && !isAdPlaceholderUrl(it.image_url)) return;
+      const og = await fetchOgImage(it.url);
+      if (og) {
+        it.image_url = og;
+      } else if (isAdPlaceholderUrl(it.image_url)) {
+        // Drop the placeholder rather than leaving "ad space" art
+        // on the card.
+        it.image_url = null;
+      }
+    }),
+  );
+
+  return { source, items: finalItems };
+}
+
+// Fetch the article HTML and pull out <meta property="og:image" content="…">
+// (also accepts the swapped attribute order: content first, property
+// second). Returns null on any failure — caller treats it as "no image"
+// and the card renders without art. Network errors, non-OK responses,
+// bot-walled pages, and pages without an og:image all silently return
+// null; one slow page doesn't sink the whole cron run.
+async function fetchOgImage(articleUrl: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OG_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(articleUrl, {
+      headers: {
+        'User-Agent': UA,
+        Accept: 'text/html,application/xhtml+xml,*/*',
+      },
+      signal: controller.signal,
+      redirect: 'follow',
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    // Most pages put property= first, but some swap the order.
+    const m =
+      html.match(
+        /<meta[^>]+property=["']og:image(?::secure_url|:url)?["'][^>]+content=["']([^"']+)["']/i,
+      ) ||
+      html.match(
+        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::secure_url|:url)?["']/i,
+      );
+    if (!m) return null;
+    let url = m[1].trim();
+    if (!url) return null;
+    // Resolve protocol-relative + path-relative URLs against the
+    // article URL. <meta og:image content="//cdn.x/a.jpg"> is common.
+    if (url.startsWith('//')) url = 'https:' + url;
+    else if (url.startsWith('/')) {
+      try {
+        url = new URL(url, articleUrl).href;
+      } catch {
+        return null;
+      }
+    }
+    if (!url.startsWith('http')) return null;
+    return url;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // ─── field extractors ───────────────────────────────────────────────────────
